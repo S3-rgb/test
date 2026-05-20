@@ -1,41 +1,347 @@
-# Compiled Lua sources
-luac.out
+local player = game.Players.LocalPlayer
+local lighting = game:GetService("Lighting")
+local runService = game:GetService("RunService")
 
-# luarocks build files
-*.src.rock
-*.zip
-*.tar.gz
+_G.WalkSpeed = 65
+_G.SpeedEnabled = false
+_G.ESPEnabled = false
+_G.GenESPEnabled = false
+_G.ItemESPEnabled = false
+_G.AutofarmEnabled = false
+_G.FullbrightEnabled = false
+_G.PerfMode = false
 
-# Object files
-*.o
-*.os
-*.ko
-*.obj
-*.elf
+local savedLighting = {}
+local genESPConnections = {}
+local trackedEntities = {}
+local espScanConnection = nil
 
-# Precompiled Headers
-*.gch
-*.pch
+local gui = Instance.new("ScreenGui", player.PlayerGui)
+gui.Name = "XP_Vibe"
+gui.ResetOnSpawn = false
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-*.def
-*.exp
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 250, 0, 470)
+main.Position = UDim2.new(0.5, -125, 0.3, 0)
+main.BackgroundColor3 = Color3.fromRGB(236, 233, 216)
+main.BorderSizePixel = 1
+main.BorderColor3 = Color3.fromRGB(0, 84, 227)
+main.Active = true
+main.Draggable = true
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
+local bar = Instance.new("Frame", main)
+bar.Size = UDim2.new(1, 0, 0, 30)
+bar.BackgroundColor3 = Color3.fromRGB(0, 84, 227)
+bar.BorderSizePixel = 0
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+local title = Instance.new("TextLabel", bar)
+title.Size = UDim2.new(1, -35, 1, 0)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.Text = "D3n7y w0rl5 h4x l0l.exe"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Font = Enum.Font.SourceSansBold
+title.BackgroundTransparency = 1
+title.TextSize = 16
 
+local closeBtn = Instance.new("TextButton", bar)
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -27, 0, 3)
+closeBtn.Text = "X"
+closeBtn.BackgroundColor3 = Color3.fromRGB(232, 17, 35)
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.BorderSizePixel = 0
+closeBtn.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+local speedRow = Instance.new("Frame", main)
+speedRow.Size = UDim2.new(0, 230, 0, 32)
+speedRow.Position = UDim2.new(0, 10, 0, 40)
+speedRow.BackgroundTransparency = 1
+
+local speedLabel = Instance.new("TextLabel", speedRow)
+speedLabel.Size = UDim2.new(0, 120, 1, 0)
+speedLabel.Position = UDim2.new(0, 0, 0, 0)
+speedLabel.Text = "W4lk5p33d:"
+speedLabel.TextColor3 = Color3.new(0, 0, 0)
+speedLabel.BackgroundTransparency = 1
+speedLabel.Font = Enum.Font.SourceSans
+speedLabel.TextSize = 14
+speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local speedInput = Instance.new("TextBox", speedRow)
+speedInput.Size = UDim2.new(0, 100, 0, 26)
+speedInput.Position = UDim2.new(0, 125, 0, 3)
+speedInput.Text = tostring(_G.WalkSpeed)
+speedInput.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
+speedInput.TextColor3 = Color3.new(0, 0, 0)
+speedInput.BorderSizePixel = 1
+speedInput.BorderColor3 = Color3.fromRGB(128, 128, 128)
+speedInput.Font = Enum.Font.SourceSans
+speedInput.TextSize = 14
+speedInput.ClearTextOnFocus = false
+
+speedInput.FocusLost:Connect(function()
+	local val = tonumber(speedInput.Text)
+	if val and val > 0 then
+		_G.WalkSpeed = val
+	else
+		speedInput.Text = tostring(_G.WalkSpeed)
+	end
+end)
+
+local function createToggle(name, pos, callback)
+	local btn = Instance.new("TextButton", main)
+	btn.Size = UDim2.new(0, 230, 0, 32)
+	btn.Position = UDim2.new(0, 10, 0, pos)
+	btn.Text = name .. ": 0FF"
+	btn.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
+	btn.TextColor3 = Color3.new(0, 0, 0)
+	btn.BorderSizePixel = 1
+	btn.BorderColor3 = Color3.fromRGB(128, 128, 128)
+	btn.Font = Enum.Font.SourceSans
+	btn.TextSize = 14
+	local on = false
+	btn.MouseButton1Click:Connect(function()
+		on = not on
+		btn.Text = name .. (on and ": 0N" or ": 0FF")
+		btn.BackgroundColor3 = on and Color3.fromRGB(200, 220, 255) or Color3.fromRGB(240, 240, 240)
+		callback(on)
+	end)
+end
+
+local function cleanupGenESPConnections()
+	for _, conn in pairs(genESPConnections) do
+		conn:Disconnect()
+	end
+	genESPConnections = {}
+end
+
+local function setupGenESP(gen)
+	task.spawn(function()
+		local stats = gen:FindFirstChild("Stats") or gen:WaitForChild("Stats", 5)
+		if not stats then return end
+		local completed = stats:FindFirstChild("Completed") or stats:WaitForChild("Completed", 5)
+		if not completed then return end
+		local h = gen:FindFirstChild("G3n35P") or Instance.new("Highlight", gen)
+		h.Name = "G3n35P"
+		h.OutlineColor = Color3.new(1, 0, 0)
+		h.FillColor = completed.Value and Color3.new(0, 1, 0) or Color3.fromRGB(139, 0, 0)
+		local conn = completed:GetPropertyChangedSignal("Value"):Connect(function()
+			if not _G.GenESPEnabled then return end
+			local highlight = gen:FindFirstChild("G3n35P")
+			if highlight then
+				highlight.FillColor = completed.Value and Color3.new(0, 1, 0) or Color3.fromRGB(139, 0, 0)
+			end
+		end)
+		table.insert(genESPConnections, conn)
+	end)
+end
+
+local function applyEntityESP(v)
+	if trackedEntities[v] then return end
+	trackedEntities[v] = true
+	local h = v:FindFirstChild("3nt1ty35P") or Instance.new("Highlight", v)
+	h.Name = "3nt1ty35P"
+	if game.Players:GetPlayerFromCharacter(v) then
+		h.FillTransparency = 1
+		h.OutlineColor = Color3.new(0, 1, 0)
+	else
+		h.FillTransparency = 0.5
+		h.FillColor = Color3.new(1, 0, 0)
+		h.OutlineColor = Color3.new(1, 0, 0)
+	end
+	v.AncestryChanged:Connect(function()
+		if not v:IsDescendantOf(workspace) then
+			trackedEntities[v] = nil
+		end
+	end)
+end
+
+local function clearESPTag(tag)
+	for _, v in pairs(workspace:GetDescendants()) do
+		local h = v:FindFirstChild(tag)
+		if h then h:Destroy() end
+	end
+end
+
+local function getCurrentRoom()
+	return workspace:FindFirstChild("CurrentRoom")
+end
+
+local function scanCurrentRoom()
+	local currentRoom = getCurrentRoom()
+	if not currentRoom then return end
+	for _, map in pairs(currentRoom:GetChildren()) do
+		if _G.GenESPEnabled then
+			local gens = map:FindFirstChild("Generators")
+			if gens then
+				for _, gen in pairs(gens:GetChildren()) do
+					if not gen:FindFirstChild("G3n35P") then
+						setupGenESP(gen)
+					end
+				end
+			end
+		end
+		if _G.ItemESPEnabled then
+			local items = map:FindFirstChild("Items")
+			if items then
+				for _, item in pairs(items:GetChildren()) do
+					if not item:FindFirstChild("1t3m35P") then
+						local h = Instance.new("Highlight", item)
+						h.Name = "1t3m35P"
+						h.FillTransparency = 1
+						h.OutlineColor = Color3.new(1, 1, 1)
+						h.OutlineTransparency = 0
+					end
+				end
+			end
+		end
+	end
+end
+
+local function scanEntities()
+	if not _G.ESPEnabled then return end
+	for _, v in pairs(workspace:GetDescendants()) do
+		if v:IsA("Model") and v:FindFirstChild("Humanoid") then
+			applyEntityESP(v)
+		end
+	end
+end
+
+local function startESPLoop()
+	if espScanConnection then return end
+	local tick = 0
+	espScanConnection = runService.Heartbeat:Connect(function(dt)
+		tick = tick + dt
+		if tick < 3 then return end
+		tick = 0
+		if _G.ESPEnabled then scanEntities() end
+		if _G.GenESPEnabled or _G.ItemESPEnabled then scanCurrentRoom() end
+	end)
+end
+
+local function stopESPLoop()
+	if espScanConnection then
+		espScanConnection:Disconnect()
+		espScanConnection = nil
+	end
+end
+
+local function checkESPLoop()
+	if _G.ESPEnabled or _G.GenESPEnabled or _G.ItemESPEnabled then
+		startESPLoop()
+	else
+		stopESPLoop()
+	end
+end
+
+createToggle("5p33d", 80, function(s) _G.SpeedEnabled = s end)
+
+createToggle("3nt1ty 35P", 120, function(s)
+	_G.ESPEnabled = s
+	if not s then
+		trackedEntities = {}
+		clearESPTag("3nt1ty35P")
+	else
+		scanEntities()
+	end
+	checkESPLoop()
+end)
+
+createToggle("G3n 35P", 160, function(s)
+	_G.GenESPEnabled = s
+	if not s then
+		cleanupGenESPConnections()
+		clearESPTag("G3n35P")
+	else
+		scanCurrentRoom()
+	end
+	checkESPLoop()
+end)
+
+createToggle("1t3m 35P", 200, function(s)
+	_G.ItemESPEnabled = s
+	if not s then
+		clearESPTag("1t3m35P")
+	else
+		scanCurrentRoom()
+	end
+	checkESPLoop()
+end)
+
+createToggle("4ut0f4rm", 240, function(s) _G.AutofarmEnabled = s end)
+
+createToggle("Fullbr1ght", 280, function(s)
+	_G.FullbrightEnabled = s
+	if s then
+		savedLighting.Brightness = lighting.Brightness
+		savedLighting.ClockTime = lighting.ClockTime
+		savedLighting.FogEnd = lighting.FogEnd
+		savedLighting.GlobalShadows = lighting.GlobalShadows
+		savedLighting.Ambient = lighting.Ambient
+		lighting.Brightness = 2
+		lighting.ClockTime = 14
+		lighting.FogEnd = 100000
+		lighting.GlobalShadows = false
+		lighting.Ambient = Color3.new(1, 1, 1)
+	else
+		lighting.Brightness = savedLighting.Brightness
+		lighting.ClockTime = savedLighting.ClockTime
+		lighting.FogEnd = savedLighting.FogEnd
+		lighting.GlobalShadows = savedLighting.GlobalShadows
+		lighting.Ambient = savedLighting.Ambient
+	end
+end)
+
+createToggle("P3rf0rm4nc3 M0d3", 320, function(s)
+	_G.PerfMode = s
+	if s then
+		settings().Rendering.QualityLevel = 1
+		for _, v in pairs(workspace:GetDescendants()) do
+			if v:IsA("BasePart") then
+				v.Material = Enum.Material.SmoothPlastic
+				v.Reflectance = 0
+			elseif v:IsA("Decal") or v:IsA("Texture") then
+				v.Transparency = 1
+			elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+				v.Enabled = false
+			end
+		end
+	end
+end)
+
+task.spawn(function()
+	while true do
+		if _G.SpeedEnabled then
+			pcall(function() player.Character.Humanoid.WalkSpeed = _G.WalkSpeed end)
+		end
+		task.wait(0.0001)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		if _G.AutofarmEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			local currentRoom = getCurrentRoom()
+			if currentRoom then
+				for _, map in pairs(currentRoom:GetChildren()) do
+					local items = map:FindFirstChild("Items")
+					if items then
+						for _, item in pairs(items:GetChildren()) do
+							if not _G.AutofarmEnabled then break end
+							if item.Name == "FakeCapsule" then continue end
+							local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+							if prompt then
+								player.Character.HumanoidRootPart.CFrame = item:GetModelCFrame() + Vector3.new(0, 5, 0)
+								task.wait(0.2)
+								fireproximityprompt(prompt)
+								task.wait(0.3)
+							end
+						end
+					end
+				end
+			end
+		end
+		task.wait(1)
+	end
+end)
